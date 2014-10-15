@@ -1,45 +1,46 @@
 #include "invader.h"
+#include <opencv/highgui.h>
+#include <cmath>
+#include "gameimage.h"
 
-Invader::Invader(const char *filename, const cv::Point &position,const int speed, cv::Mat &img):
-	image(img),pos(position){
-	this->inv = cv::imread(filename, 1);
-	this->inv_mask = cv::imread(filename, 0);
-	this->mov.x = speed;
-	this->mov.y = inv.size().height + 5;
+Invader::Invader(const GameImage &invaderImage, const cv::Size &camSize, const cv::Point &position, int speed) :
+	invaderImage(invaderImage),
+	camSize(camSize),
+	pos(position),
+	mov(speed, speed)
+{
 }
 
- Invader::~Invader(void){
-	inv.release();
-	inv_mask.release();
-}
+Invader::~Invader(){ }
 
-void Invader::update(void){
-	if (image.size().width  <= (pos.x + inv.size().width + mov.x)) { mov.x *= -1; pos.y += mov.y; };
-	if ((pos.x + mov.x) <= 0) { mov.x *= -1; pos.y += mov.y; };
+void Invader::onUpdate() {
+	const cv::Size imgSize = invaderImage.size();
 	pos.x += mov.x;
+	if ((camSize.width <= (pos.x + imgSize.width)) || (pos.x <= 0)) {
+		mov.x *= -1;
+		pos.x += mov.x;
+		pos.y += imgSize.height + std::abs(mov.x);
+	};
 }
 
-void Invader::draw(void){
-	cv::Rect roi(pos.x, pos.y, inv.size().width , inv.size().height);
-	image_roi = image(roi);
-	image_roi.setTo(0,inv_mask);
-	image_roi += inv;
-	image_roi.release();
+void Invader::onPaint(cv::Mat &image) const {
+	invaderImage.paint(image, pos);
 }
 
-bool Invader::colision(const cv::Rect &rect){
-	cv::Point opt[4];
-	opt[0] = cv::Point(rect.x,rect.y);
-	opt[1] = cv::Point(rect.x + rect.width, rect.y);
-	opt[2] = cv::Point(rect.x,rect.y  + rect.height);
-	opt[3] = cv::Point(rect.x + rect.width, rect.y + rect.height);
-
-	cv::Rect myob(pos, inv.size());
-
-	for(unsigned int i = 0; i < 4; i++){
-		if (myob.contains(opt[i])) return true;
-	}
-
-	return false;
+cv::Rect Invader::getRect() const {
+	return cv::Rect(pos, invaderImage.size());
 }
 
+Invader::Factory::Factory(const GameImage& invaderImage, const cv::Size& camSize, int speed):
+	invaderImage(invaderImage),
+	camSize(camSize),
+	speed(speed),
+	count(0)
+{
+}
+
+Invader* Invader::Factory::operator()() {
+	const unsigned count_ = count++;
+	const int xpos = (invaderImage.size().width + speed) * count_;
+	return new Invader(invaderImage, camSize, cv::Point(xpos,0), speed);
+}

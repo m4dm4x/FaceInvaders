@@ -1,40 +1,41 @@
-/*
- * invader.h
- *
- *  Created on: Apr 11, 2010
- *      Author: filip
- */
-
 #ifndef INVADER_H_
 #define INVADER_H_
 
-#include<opencv/cv.h>
-#include<opencv/highgui.h>
-
+#include <opencv/cxcore.hpp>
 #include "graphic.h"
+
+class GameImage;
 
 class Invader : public Graphic {
 private:
-	cv::Mat &image;    // Background Image
+	const GameImage &invaderImage;	// player image
+	cv::Size camSize;
 	cv::Point pos;     // Invader Position
 	cv::Point mov;     // Motion Vector
-	cv::Mat inv;       // Invader Picture
-	cv::Mat inv_mask;  // Invader Mask
-	cv::Mat image_roi; // Ivaders Region of Inerest
+  
+	virtual void onPaint(cv::Mat &image) const;
+	virtual void onUpdate();
+	virtual cv::Rect getRect() const;
 
 public:
+	Invader(const GameImage &invaderImage, const cv::Size &camSize, const cv::Point &position, int speed);
+	virtual ~Invader();
 
-	Invader(const char *filename, const cv::Point &position, const int speed, cv::Mat &img);
-	virtual ~Invader(void);
+//	cv::Point getPosition() const;
+//	bool colision(const cv::Rect &sh);
 
-	void update(void);
-	void draw(void);
+	class Factory;
+};
 
-	cv::Point getPosition(void) {return cv::Point(pos.x + (inv.size().height>>1),pos.y);};
-	bool colision(const cv::Rect &sh);
-
-	//TODO: isWinner method
-	//bool isWinner(void);
+class Invader::Factory {
+private:
+	const GameImage &invaderImage;
+	const cv::Size &camSize;
+	const int speed;
+	unsigned count;
+public:
+	Factory(const GameImage &invaderImage, const cv::Size &camSize, int speed);
+	Invader* operator()();
 };
 
 #endif /* INVADER_H_ */

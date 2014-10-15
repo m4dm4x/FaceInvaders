@@ -1,178 +1,169 @@
-//============================================================================
-// Name        : fpaceinvaders.cpp
-// Version     : 0.0.5 PreAlpha
-// Copyright   : Public Domain
-//============================================================================
-
-//#define SAVE_VIDEO
-//#define NOINVADERS
-#define HAARCASCADE_PATH "/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml"
-
+#include <opencv/cv.hpp>
 #include <opencv/highgui.h>
-#include <opencv/cv.h>
 
+#include <deque>
 #include <iostream>
-#include <list>
+#include <algorithm>
+#include <iterator>
+#include <ctime>
 
+#include "playerposition.h"
 #include "graphic.h"
-#include "invader.h"
+#include "gameimage.h"
 #include "player.h"
+#include "invader.h"
 #include "shot.h"
 
-using namespace std;
-using namespace cv;
+static const int DEFAULT_DEVICE = 0;
+static const int FLIPPING_AROUND_Y_AXIS = 1; ///< flipping around y-axis
+static const int SHOT_LINE_PIX = 300;
+static const unsigned MAX_INVADERS = 8;
+static const int WAIT_DELAY_MS = 10;
+static const int SHOT_SPEED = 8;
 
-void inline drawCross(Mat &img, const Point &pos);
-bool inline shotIsOut(Shot *sht);
+static const char PLAYER_PNG[] = "./data/player.png";
+static const char INVADER_PNG [] = "./data/invader.png";
+static const char HAARCASCADE_XML[] = "/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml";
+
+class GraphicPaint {
+private:
+	cv::Mat &i;
+public:
+	inline GraphicPaint(cv::Mat &i):i(i){}
+	inline void operator()(Graphic *g) { if (g) g->paint(i); }
+	inline void operator()(Graphic &g) { g.paint(i); }
+};
+
+struct GraphicUpdate {
+	inline void operator()(Graphic *g) const { if (g) g->update(); }
+	inline void operator()(Graphic &g) const { g.update(); }
+};
+
+struct GraphicDelete {
+	inline void operator()(Graphic *g) const { delete g; }
+};
+
+static bool checkColision(const cv::Rect &a, const cv::Rect &b){
+	if (b.contains(a.tl())) return true;
+	if (b.contains(a.br())) return true;
+	if (b.contains(cv::Point(a.x+a.width,a.y))) return true;
+	if (b.contains(cv::Point(a.x,a.y+a.height))) return true;
+	return false;
+}
+
+class GraphicColisionDelete {
+private:
+	cv::Rect a;
+public:
+	inline GraphicColisionDelete(const cv::Rect &a):a(a){}
+	inline bool operator()(const Graphic *g) const { if (checkColision(a,g->rect())) { delete g; return true;} else { return false; }; }
+	//inline bool operator()(const Graphic &g) const { return checkColision(a,g.rect()); }
+};
+
+inline static bool isInvalidShot(const Shot &s) { return !s.isValid(); }
 
 int main() {
-#ifdef SAVE_VIDEO
-	VideoWriter writer("face_invaders.avi",CV_FOURCC('P','I','M','1'), 25, Size(300,200), 1);
-#endif
+	typedef std::deque<Invader*> InvaderList;
+	typedef std::deque<Shot> ShotList;
 
-	typedef list<Invader*>::iterator InvIT;
-	typedef list<Shot*>::iterator ShotIT;
-
-	cv::RNG rng(0xfffffff);
-
-	const int MAX_INVADERS = 8;
-	const int shotline = 80;
-
-	VideoCapture cap( 0 ); // open the default camera
+	cv::VideoCapture cap( DEFAULT_DEVICE );
 	if(!cap.isOpened()) {
-		cerr << "Error opening capture device!!";
+		std::cerr << "Error opening VideoCapture!" << std::endl;
 		return -1;
 	}
+	
+	cap.set(CV_CAP_PROP_FRAME_WIDTH, 1024);
+	cap.set(CV_CAP_PROP_FRAME_HEIGHT, 768);
+	
+	const GameImage playerImage( PLAYER_PNG );
+	const GameImage invaderImage( INVADER_PNG );
 
-	CascadeClassifier cascade;
-	if ( !cascade.load( HAARCASCADE_PATH ) ) {
-		cerr << "Error loading haarcascades!";
-		return -1;
-	}
+	cv::namedWindow("SpaceInvaders", CV_WINDOW_AUTOSIZE);
+	
+	cv::Mat cameraImage;
+	cap >> cameraImage;
+	
+	Player player(playerImage, cameraImage.size(), SHOT_LINE_PIX);
+	PlayerPosition playerPosition(player, HAARCASCADE_XML, cameraImage.size());
+	Shot playerShot;
+	bool gameOver = false;
+	
+	const int YGameOver = cameraImage.size().height - player.rect().height - invaderImage.size().height;
+	
+	InvaderList invaders;
+	std::generate_n(std::back_inserter(invaders), MAX_INVADERS, Invader::Factory(invaderImage,cameraImage.size(), 5));
+	
+	ShotList shots;
+	
+	cv::RNG rng(uint64(std::time(0)));
+	
+	for (int key = -1; 'q' != key; key = cv::waitKey(WAIT_DELAY_MS)) {
+		cap >> cameraImage;
+		cv::flip(cameraImage, cameraImage, FLIPPING_AROUND_Y_AXIS);
 
-	namedWindow("SpaceInvaders",CV_WINDOW_AUTOSIZE);
-	Mat bg;
-	cap >> bg;
-	Mat cam(Size(bg.size().width>>1, bg.size().height>>1), CV_8UC1);
-	Mat cgray(cam.size(),CV_8UC1);
-
-#ifndef NOINVADERS
-
-	list<Invader*> invaders;
-	for (int i = 0; i < MAX_INVADERS; i++) {
-		Invader *invader = new Invader("./data/invader.png", Point(0 + 65*i, 80), 5, bg);
-		invaders.push_back(invader);
-	}
-
-	list<Shot*> ishots;
-
-	Player player("./data/player.png", Point(200,80), shotline, bg);
-	Shot player_shot(Point(-10,-10), -10, Scalar(200,200,200), bg); player_shot.update();
-#endif
-
-	vector<Rect> faces;
-
-	int key = 0;
-	while ((char)key != 'q'){
-
-		cap >> bg;
-		flip(bg, bg, 1);
-		resize(bg,cam,cam.size());
-		cvtColor( cam, cgray, CV_BGR2GRAY );
-		equalizeHist(cgray, cgray);
-
-		faces.clear();
-		cascade.detectMultiScale( cgray, faces, 1.1, 2, CV_HAAR_SCALE_IMAGE, Size(30, 30) );
-
-		if (faces.size() > 0) {
-			Point facepoint((faces[0].x + (faces[0].width>>1))<<1, (faces[0].y + (faces[0].height>>1))<<1);
-			drawCross(bg, facepoint);
-
-#ifndef NOINVADERS
-			player.update(facepoint);
-			if (player.isShoting()) {
-				if (player_shot.isOut()) player_shot.update(player.getShotPoint());
+		if (!gameOver) {
+		
+		playerPosition.update(cameraImage);
+		playerShot.update();
+		std::for_each(invaders.begin(), invaders.end(), GraphicUpdate());
+		std::for_each(shots.begin(), shots.end(), GraphicUpdate());
+		
+		if (playerShot.isValid()) {
+			const InvaderList::iterator iInvaderEnd = std::remove_if(invaders.begin(),invaders.end(), GraphicColisionDelete(playerShot.rect()));
+			if (iInvaderEnd != invaders.end()) {
+				invaders.erase(iInvaderEnd, invaders.end());
+				playerShot = Shot();
 			}
 		}
-
-		//Object Updates
-		player_shot.update();
-		for (ShotIT it = ishots.begin(); it != ishots.end(); it++) {
-			(*it)->update();
-		}
-		ishots.remove_if(shotIsOut);
-
-
-		for (InvIT it = invaders.begin(); it != invaders.end(); it++) {
-			(*it)->update();
-			if (ishots.size() < invaders.size()) {
-				if (rng.uniform(0.0, 1.999999) < 0.1) {
-					Shot *is = new Shot((*it)->getPosition(), 8, Scalar(000,000,250), bg);
-					ishots.push_back(is);
-				}
+		
+		if (!shots.empty()) {
+			const ShotList::iterator iShotsEnd = std::remove_if(shots.begin(), shots.end(), isInvalidShot);
+			if (iShotsEnd != shots.end()) {
+				shots.erase(iShotsEnd, shots.end());
 			}
 		}
-
-
-		//Colision Detection
-		Rect shot_rect = player_shot.getRectangle();
-		for (InvIT it = invaders.begin(); it != invaders.end(); it++) {
-			if ((*it)->colision(shot_rect)) {
-				player_shot.setOut();
-				delete (*it);
-				invaders.remove((*it));
-				break;
+		
+		for (InvaderList::const_iterator iInvader = invaders.begin(); iInvader != invaders.end() && !gameOver; ++iInvader) {
+			const cv::Rect irect( (*iInvader)->rect() );
+			if ((rng.uniform(0.0,1.0) < 0.05) && (shots.size() < MAX_INVADERS)) {
+				cv::Point shotPos(irect.x + (irect.width / 2), irect.y + irect.height);
+				shots.push_back( Shot(shotPos,SHOT_SPEED,cv::Scalar(100,50,100),cameraImage.size()) );
+			}
+			if (irect.y >= YGameOver) {
+				gameOver = true;
 			}
 		}
-		for (ShotIT it = ishots.begin(); it != ishots.end(); it++) {
-			if (player.colision((*it)->getRectangle())) {
-				invaders.clear();
-				cout << "GAME OVER\n";
-				break;
+		
+		if (!playerShot.isValid() && player.isShooting()) {
+			cv::Point shotPoint( player.facePosition() );
+			shotPoint.y = cameraImage.size().height - playerImage.size().height;
+			playerShot = Shot(shotPoint,-SHOT_SPEED,cv::Scalar(100,50,0),cameraImage.size());
+		}
+		
+		for (ShotList::iterator iShot(shots.begin()); iShot != shots.end() && !gameOver; ++iShot) {
+			if (iShot->isValid() && checkColision(iShot->rect(),player.rect())) {
+				gameOver = true;
 			}
 		}
-
-		// Graphic Output :o)
-		line(bg, Point(0, shotline), Point(bg.size().width, shotline),Scalar(50,55,55),2,1);
-		player_shot.draw();
-		for (ShotIT it = ishots.begin(); it != ishots.end(); it++) {
-			(*it)->draw();
+		
 		}
-		player.draw();
-		for (InvIT it = invaders.begin(); it != invaders.end(); it++) {
-			(*it)->draw();
+		
+		std::for_each(invaders.begin(), invaders.end(), GraphicPaint(cameraImage));
+		std::for_each(shots.begin(), shots.end(), GraphicPaint(cameraImage));
+		player.paint(cameraImage);
+		playerShot.paint(cameraImage);
+		
+		if (invaders.empty()) {
+			cv::putText(cameraImage, "Winner!", cv::Point(30,80), cv::FONT_HERSHEY_SIMPLEX, 3, cv::Scalar::all(255), 2, 8);
+		} else if (gameOver) {
+			cv::putText(cameraImage, "Game Over!", cv::Point(30,80), cv::FONT_HERSHEY_SIMPLEX, 3, cv::Scalar::all(255), 2, 8);
 		}
-
-		if (invaders.empty()) break;
-
-#endif
-#ifdef NOINVADERS
-		}
-#endif
-		imshow("SpaceInvaders", bg);
-#ifdef SAVE_VIDEO
-		writer << bg;
-#endif
-		key = waitKey(10);
-
+		
+		cv::resize(cameraImage, cameraImage, cameraImage.size() * 2);
+		cv::imshow("SpaceInvaders", cameraImage);
 	}
-
-#ifndef NOINVADERS
-	for (InvIT it = invaders.begin(); it != invaders.end(); it++) {
-				delete (*it);
-	}
-#endif
+	
+	std::for_each(invaders.begin(), invaders.end(), GraphicDelete());
+	
 	return 0;
 }
-
-void inline drawCross(Mat &img, const Point &pos){
-	line(img, Point(pos.x - 10, pos.y), Point(pos.x + 10, pos.y),Scalar(255,255,255),2,1);
-	line(img, Point(pos.x, pos.y - 10), Point(pos.x, pos.y + 10),Scalar(255,255,255),2,1);
-}
-
-bool inline shotIsOut(Shot *sht){
-	bool out = sht->isOut();
-	if (out) delete sht;
-	return out;
-}
-

@@ -1,41 +1,44 @@
 #include "shot.h"
 
-Shot::Shot(const cv::Point &position, const int &direction, const cv::Scalar &color, cv::Mat &image):
-	position(position), direction(direction), color(color), image(image), out(false){
-	/* Empty Constructor */
+static const int SHOT_HEIGHT = 20;
+
+Shot::Shot():
+	position(cv::Point(0,0)),
+	speed(0),
+	color(cv::Scalar::all(0)),
+	height(-SHOT_HEIGHT)
+{
 }
 
-Shot::~Shot(void) { /* Nothing to do */ }
+Shot::Shot(const cv::Point& position, int speed, const cv::Scalar& color, const cv::Size& size):
+	position(position),
+	speed(speed),
+	color(color),
+	height(size.height - SHOT_HEIGHT) // precompute height so we dont have to do it over and over in isValid
+{
 
-void Shot::update(void){
-	position.y += direction;
-	if (image.size().height <= (position.y + Shot::HEIGHT )) out = true;
-	if (position.y <= 0) out = true;
 }
 
-void Shot::update(const cv::Point &newpos) {
-	position = newpos;
-	out = false;
-	update();
+Shot::~Shot() {
+	
 }
 
-void Shot::draw(void){
-	if (this->out) return;
-	cv::line(image, position, cv::Point(position.x, position.y + Shot::HEIGHT), this->color, 5, 1);
+bool Shot::isValid() const {
+	return (position.y > 0) && (position.y < height);
 }
 
-
-void Shot::setOut(void){
-	this->out = true;
+void Shot::onUpdate() {
+	if (isValid()) {
+		position.y += speed;
+	}
 }
 
-bool Shot::isOut(void){
-	return this->out;
+void Shot::onPaint(cv::Mat& image) const {
+	if (isValid()) {
+		cv::line(image, position, cv::Point(position.x, position.y + SHOT_HEIGHT), color, 5, 1);
+	}
 }
 
-cv::Rect Shot::getRectangle(void){
-	if (this->out)
-		return cv::Rect(0, 0, 0, 0);
-	else
-		return cv::Rect(position.x, position.y, 1, Shot::HEIGHT);
+cv::Rect Shot::getRect() const {
+	return cv::Rect(position.x - 1, position.y, 3, SHOT_HEIGHT);
 }

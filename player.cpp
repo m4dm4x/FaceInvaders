@@ -1,62 +1,58 @@
 #include "player.h"
 
-Player::Player(const char *filename, const cv::Point &position,const int shot_y, cv::Mat &img):image(img){
-	this->inv = cv::imread(filename, 1);
-	this->inv_mask = cv::imread(filename, 0);
-	this->shot_y = shot_y;
-	this->x_dif = inv.size().width / 2;
-	this->pos.y = img.size().height - inv.size().height - 1;
-	this->pos.x = 0;
-	this->is_shoting = false;
-	update(position);
+#include <opencv/highgui.h>
+#include "gameimage.h"
+
+inline static void drawCross(cv::Mat &img, const cv::Point &pos, int yShot) {
+	//cv::line(img, cv::Point(pos.x - 10, pos.y), cv::Point(pos.x + 10, pos.y), cv::Scalar(255,255,255),2,1);
+	//cv::line(img, cv::Point(pos.x, pos.y - 10), cv::Point(pos.x, pos.y + 10), cv::Scalar(255,255,255),2,1);
+	//cv::circle(img, pos, 10, cv::Scalar(255,255,0),5);
+	const cv::Size isize( img.size() );
+	cv::line(img, cv::Point(0, pos.y), cv::Point(isize.width, pos.y), cv::Scalar::all(255),1);
+	cv::line(img, cv::Point(pos.x, 0), cv::Point(pos.x, yShot), cv::Scalar(0,127,255), 3);
+	cv::line(img, cv::Point(pos.x, yShot), cv::Point(pos.x, isize.height), cv::Scalar::all(255),2);
 }
 
-Player::~Player(void){
-	inv.release();
-	inv_mask.release();
+Player::Player(const GameImage& playerImage, const cv::Size& camSize, int yShot):
+	playerImage(playerImage),
+	camSize(camSize),
+	yShot(yShot),
+	pos(camSize.width / 2, camSize.height / 2)
+{
+
 }
 
-void Player::update(const cv::Point &newpos){
-	if ((newpos.x - x_dif) <= 0 ) {
-		pos.x = 0;
-	} else if ((newpos.x + x_dif) >= image.size().width) {
-		pos.x = image.size().width - x_dif - 1;
-	} else {
-		pos.x = newpos.x - x_dif;
-	}
+Player::~Player() { }
 
-	this->is_shoting = newpos.y < shot_y ?  true : false;
+inline static int irange(int min_, int i, int max_) {
+	return (i < min_) ? min_ : ((i > max_) ? max_ : i);
 }
 
-void Player::draw(void){
-	cv::Rect roi(pos.x, pos.y, inv.size().width , inv.size().height);
-	image_roi = image(roi);
-	image_roi.setTo(0,inv_mask);
-	image_roi += inv;
-	image_roi.release();
+void Player::onPaint(cv::Mat& image) const {
+	drawCross(image, pos, yShot);
+	const int xPlayer = pos.x - (playerImage.size().width / 2);
+	const int yPlayer = camSize.height - playerImage.size().height;
+	cv::Point topLeft(irange(0, xPlayer, camSize.width), yPlayer); 
+	playerImage.paint(image, topLeft);
 }
 
-bool Player::isShoting(void){
-	return this->is_shoting;
+void Player::onUpdate() { }
+
+bool Player::isShooting() const {
+	return (pos.y < yShot);
 }
 
-cv::Point Player::getShotPoint(void){
-	if (!is_shoting) return cv::Point(-10, -10);
-	return cv::Point(pos.x + x_dif, pos.y);
+cv::Point Player::facePosition() const {
+	return pos;
 }
 
-bool Player::colision(const cv::Rect &rect){
-	cv::Point opt[4];
-	opt[0] = cv::Point(rect.x,rect.y);
-	opt[1] = cv::Point(rect.x + rect.width, rect.y);
-	opt[2] = cv::Point(rect.x,rect.y  + rect.height);
-	opt[3] = cv::Point(rect.x + rect.width, rect.y + rect.height);
+void Player::setFacePosition(const cv::Point& newpos) {
+	pos = newpos;
+}
 
-	cv::Rect myob(pos, inv.size());
-
-	for(unsigned int i = 0; i < 4; i++){
-		if (myob.contains(opt[i])) return true;
-	}
-
-	return false;
+cv::Rect Player::getRect() const {
+	const int xPlayer = pos.x - (playerImage.size().width / 2);
+	const int yPlayer = camSize.height - playerImage.size().height;
+	cv::Point topLeft(irange(0, xPlayer, camSize.width), yPlayer); 
+	return cv::Rect(topLeft, playerImage.size());
 }

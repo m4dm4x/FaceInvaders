@@ -1,39 +1,26 @@
-/*
- * shot.h
- *
- *  Created on: Apr 11, 2010
- *      Author: filip
- */
-
 #ifndef SHOT_H_
 #define SHOT_H_
 
-#include<opencv/highgui.h>
-#include<opencv/cv.h>
+#include<opencv/cv.hpp>
 
 #include"graphic.h"
 
-class Shot : public Graphic{
+class Shot : public Graphic {
 private:
-	cv::Point position; //Shot upper position
-	int direction;  //Shot Direction (positive = down / negative = up)
-	cv::Scalar color;   //Shot color
-	cv::Mat &image;     //Background Image
-	bool out;       //Shot is out...
+	cv::Point position; ///< top position
+	int speed; ///< speed direction ( speed > 0  = down / speed < 0 = up)
+	cv::Scalar color; ///< shot color
+	int height; ///< paint image height (to detect out of image shots)
 
-	static const int HEIGHT = 20;
+	virtual void onUpdate();
+	virtual void onPaint(cv::Mat& image) const;
+	virtual cv::Rect getRect() const;
+
 public:
-	Shot(const cv::Point &position, const int &direction, const cv::Scalar &color, cv::Mat &image);
-	virtual ~Shot(void);
-
-	void update(void);
-	void update(const cv::Point &newpos);
-
-	void draw(void);
-
-	cv::Rect getRectangle(void);
-	void setOut(void);
-	bool isOut(void);
+	Shot();
+	Shot(const cv::Point &position, int speed, const cv::Scalar &color, const cv::Size &size);
+	virtual ~Shot();
+	bool isValid() const;
 };
 
 #endif /* SHOT_H_ */
