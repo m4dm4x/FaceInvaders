@@ -19,14 +19,13 @@ static const int FLIPPING_AROUND_Y_AXIS = 1; ///< flipping around y-axis
 static const int SHOT_LINE_PIX = 300;
 static const unsigned MAX_INVADERS = 8;
 static const int WAIT_DELAY_MS = 10;
-static const int SHOT_SPEED = 8;
+static const int SHOT_SPEED = 6;
 
 static const char PLAYER_PNG[] = "./data/player.png";
 static const char INVADER_PNG [] = "./data/invader.png";
 static const char HAARCASCADE_XML[] = "/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml";
 
 class GraphicPaint {
-private:
 	cv::Mat &i;
 public:
 	inline GraphicPaint(cv::Mat &i):i(i){}
@@ -39,10 +38,6 @@ struct GraphicUpdate {
 	inline void operator()(Graphic &g) const { g.update(); }
 };
 
-struct GraphicDelete {
-	inline void operator()(Graphic *g) const { delete g; }
-};
-
 static bool checkColision(const cv::Rect &a, const cv::Rect &b){
 	if (b.contains(a.tl())) return true;
 	if (b.contains(a.br())) return true;
@@ -51,13 +46,13 @@ static bool checkColision(const cv::Rect &a, const cv::Rect &b){
 	return false;
 }
 
+inline static void deleteGraphic(Graphic *g) { delete g; }
+
 class GraphicColisionDelete {
-private:
 	cv::Rect a;
 public:
 	inline GraphicColisionDelete(const cv::Rect &a):a(a){}
-	inline bool operator()(const Graphic *g) const { if (checkColision(a,g->rect())) { delete g; return true;} else { return false; }; }
-	//inline bool operator()(const Graphic &g) const { return checkColision(a,g.rect()); }
+	inline bool operator()(Graphic *g) const { if (checkColision(a,g->rect())) { deleteGraphic(g); return true;} else { return false; }; }
 };
 
 inline static bool isInvalidShot(const Shot &s) { return !s.isValid(); }
@@ -83,19 +78,30 @@ int main() {
 	cv::Mat cameraImage;
 	cap >> cameraImage;
 	
-	Player player(playerImage, cameraImage.size(), SHOT_LINE_PIX);
-	PlayerPosition playerPosition(player, HAARCASCADE_XML, cameraImage.size());
+	const cv::Size CameraImageSize( cameraImage.size() );
+	
+	Player player(playerImage, CameraImageSize, SHOT_LINE_PIX);
+	PlayerPosition playerPosition(player, HAARCASCADE_XML, CameraImageSize);
 	Shot playerShot;
 	bool gameOver = false;
 	
-	const int YGameOver = cameraImage.size().height - player.rect().height - invaderImage.size().height;
+	const int YPlayerShot = CameraImageSize.height - playerImage.size().height;
+	const int YGameOver = CameraImageSize.height - player.rect().height - invaderImage.size().height;
 	
 	InvaderList invaders;
-	std::generate_n(std::back_inserter(invaders), MAX_INVADERS, Invader::Factory(invaderImage,cameraImage.size(), 5));
+	std::generate_n(std::back_inserter(invaders), MAX_INVADERS, Invader::Factory(invaderImage, CameraImageSize, 5));
 	
 	ShotList shots;
 	
 	cv::RNG rng(uint64(std::time(0)));
+	
+	for (int key = -1; ' ' != key; key = cv::waitKey(WAIT_DELAY_MS)) {
+		cap >> cameraImage;
+		cv::flip(cameraImage, cameraImage, FLIPPING_AROUND_Y_AXIS);
+		cv::putText(cameraImage, "Press space to play!", cv::Point(30,80), cv::FONT_HERSHEY_SIMPLEX, 2, cv::Scalar::all(255), 2, 8);
+		cv::resize(cameraImage, cameraImage, CameraImageSize * 2);
+		cv::imshow("SpaceInvaders", cameraImage);
+	}
 	
 	for (int key = -1; 'q' != key; key = cv::waitKey(WAIT_DELAY_MS)) {
 		cap >> cameraImage;
@@ -127,7 +133,7 @@ int main() {
 			const cv::Rect irect( (*iInvader)->rect() );
 			if ((rng.uniform(0.0,1.0) < 0.05) && (shots.size() < MAX_INVADERS)) {
 				cv::Point shotPos(irect.x + (irect.width / 2), irect.y + irect.height);
-				shots.push_back( Shot(shotPos,SHOT_SPEED,cv::Scalar(100,50,100),cameraImage.size()) );
+				shots.push_back( Shot(shotPos, SHOT_SPEED, cv::Scalar(100,50,100), CameraImageSize) );
 			}
 			if (irect.y >= YGameOver) {
 				gameOver = true;
@@ -135,9 +141,8 @@ int main() {
 		}
 		
 		if (!playerShot.isValid() && player.isShooting()) {
-			cv::Point shotPoint( player.facePosition() );
-			shotPoint.y = cameraImage.size().height - playerImage.size().height;
-			playerShot = Shot(shotPoint,-SHOT_SPEED,cv::Scalar(100,50,0),cameraImage.size());
+			cv::Point shotPoint( player.facePosition().x, YPlayerShot );
+			playerShot = Shot(shotPoint, -SHOT_SPEED, cv::Scalar(100,170,10), cameraImage.size());
 		}
 		
 		for (ShotList::iterator iShot(shots.begin()); iShot != shots.end() && !gameOver; ++iShot) {
@@ -159,11 +164,11 @@ int main() {
 			cv::putText(cameraImage, "Game Over!", cv::Point(30,80), cv::FONT_HERSHEY_SIMPLEX, 3, cv::Scalar::all(255), 2, 8);
 		}
 		
-		cv::resize(cameraImage, cameraImage, cameraImage.size() * 2);
+		cv::resize(cameraImage, cameraImage, CameraImageSize * 2);
 		cv::imshow("SpaceInvaders", cameraImage);
 	}
 	
-	std::for_each(invaders.begin(), invaders.end(), GraphicDelete());
+	std::for_each(invaders.begin(), invaders.end(), deleteGraphic);
 	
 	return 0;
 }
