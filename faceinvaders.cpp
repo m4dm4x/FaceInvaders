@@ -29,13 +29,7 @@ class GraphicPaint {
 	cv::Mat &i;
 public:
 	inline GraphicPaint(cv::Mat &i):i(i){}
-	inline void operator()(Graphic *g) { if (g) g->paint(i); }
 	inline void operator()(Graphic &g) { g.paint(i); }
-};
-
-struct GraphicUpdate {
-	inline void operator()(Graphic *g) const { if (g) g->update(); }
-	inline void operator()(Graphic &g) const { g.update(); }
 };
 
 static bool checkColision(const cv::Rect &a, const cv::Rect &b){
@@ -46,19 +40,18 @@ static bool checkColision(const cv::Rect &a, const cv::Rect &b){
 	return false;
 }
 
-inline static void deleteGraphic(Graphic *g) { delete g; }
-
-class GraphicColisionDelete {
+class GraphicColision {
 	cv::Rect a;
 public:
-	inline GraphicColisionDelete(const cv::Rect &a):a(a){}
-	inline bool operator()(Graphic *g) const { if (checkColision(a,g->rect())) { deleteGraphic(g); return true;} else { return false; }; }
+	inline GraphicColision(const cv::Rect &a):a(a){}
+	inline bool operator()(const Graphic &g) const { return checkColision(a,g.rect()); }
 };
 
+inline static void GraphicUpdate(Graphic &g) { g.update(); }
 inline static bool isInvalidShot(const Shot &s) { return !s.isValid(); }
 
 int main() {
-	typedef std::deque<Invader*> InvaderList;
+	typedef std::deque<Invader> InvaderList;
 	typedef std::deque<Shot> ShotList;
 
 	cv::VideoCapture cap( DEFAULT_DEVICE );
@@ -70,30 +63,12 @@ int main() {
 	cap.set(CV_CAP_PROP_FRAME_WIDTH, 1024);
 	cap.set(CV_CAP_PROP_FRAME_HEIGHT, 768);
 	
-	const GameImage playerImage( PLAYER_PNG );
-	const GameImage invaderImage( INVADER_PNG );
-
 	cv::namedWindow("SpaceInvaders", CV_WINDOW_AUTOSIZE);
 	
 	cv::Mat cameraImage;
 	cap >> cameraImage;
 	
 	const cv::Size CameraImageSize( cameraImage.size() );
-	
-	Player player(playerImage, CameraImageSize, SHOT_LINE_PIX);
-	PlayerPosition playerPosition(player, HAARCASCADE_XML, CameraImageSize);
-	Shot playerShot;
-	bool gameOver = false;
-	
-	const int YPlayerShot = CameraImageSize.height - playerImage.size().height;
-	const int YGameOver = CameraImageSize.height - player.rect().height - invaderImage.size().height;
-	
-	InvaderList invaders;
-	std::generate_n(std::back_inserter(invaders), MAX_INVADERS, Invader::Factory(invaderImage, CameraImageSize, 5));
-	
-	ShotList shots;
-	
-	cv::RNG rng(uint64(std::time(0)));
 	
 	for (int key = -1; ' ' != key; key = cv::waitKey(WAIT_DELAY_MS)) {
 		cap >> cameraImage;
@@ -103,6 +78,24 @@ int main() {
 		cv::imshow("SpaceInvaders", cameraImage);
 	}
 	
+	const GameImage playerImage( PLAYER_PNG );
+	const GameImage invaderImage( INVADER_PNG );
+	
+	const int YPlayerShot = CameraImageSize.height - playerImage.size().height;
+	const int YGameOver = YPlayerShot - invaderImage.size().height;
+	
+	Player player(playerImage, CameraImageSize, SHOT_LINE_PIX);
+	PlayerPosition playerPosition(player, HAARCASCADE_XML, CameraImageSize);
+	Shot playerShot;
+	bool gameOver = false;
+	
+	InvaderList invaders;
+	std::generate_n(std::back_inserter(invaders), MAX_INVADERS, Invader::Factory(invaderImage, CameraImageSize, 5));
+	
+	ShotList shots;
+	
+	cv::RNG rng(uint64(std::time(0)));
+	
 	for (int key = -1; 'q' != key; key = cv::waitKey(WAIT_DELAY_MS)) {
 		cap >> cameraImage;
 		cv::flip(cameraImage, cameraImage, FLIPPING_AROUND_Y_AXIS);
@@ -111,11 +104,11 @@ int main() {
 		
 		playerPosition.update(cameraImage);
 		playerShot.update();
-		std::for_each(invaders.begin(), invaders.end(), GraphicUpdate());
-		std::for_each(shots.begin(), shots.end(), GraphicUpdate());
+		std::for_each(invaders.begin(), invaders.end(), GraphicUpdate);
+		std::for_each(shots.begin(), shots.end(), GraphicUpdate);
 		
 		if (playerShot.isValid()) {
-			const InvaderList::iterator iInvaderEnd = std::remove_if(invaders.begin(),invaders.end(), GraphicColisionDelete(playerShot.rect()));
+			const InvaderList::iterator iInvaderEnd = std::remove_if(invaders.begin(),invaders.end(), GraphicColision(playerShot.rect()));
 			if (iInvaderEnd != invaders.end()) {
 				invaders.erase(iInvaderEnd, invaders.end());
 				playerShot = Shot();
@@ -130,7 +123,7 @@ int main() {
 		}
 		
 		for (InvaderList::const_iterator iInvader = invaders.begin(); iInvader != invaders.end() && !gameOver; ++iInvader) {
-			const cv::Rect irect( (*iInvader)->rect() );
+			const cv::Rect irect( iInvader->rect() );
 			if ((rng.uniform(0.0,1.0) < 0.05) && (shots.size() < MAX_INVADERS)) {
 				cv::Point shotPos(irect.x + (irect.width / 2), irect.y + irect.height);
 				shots.push_back( Shot(shotPos, SHOT_SPEED, cv::Scalar(100,50,100), CameraImageSize) );
@@ -142,7 +135,7 @@ int main() {
 		
 		if (!playerShot.isValid() && player.isShooting()) {
 			cv::Point shotPoint( player.facePosition().x, YPlayerShot );
-			playerShot = Shot(shotPoint, -SHOT_SPEED, cv::Scalar(100,170,10), cameraImage.size());
+			playerShot = Shot(shotPoint, -SHOT_SPEED, cv::Scalar(100,170,10), CameraImageSize);
 		}
 		
 		for (ShotList::iterator iShot(shots.begin()); iShot != shots.end() && !gameOver; ++iShot) {
@@ -167,8 +160,6 @@ int main() {
 		cv::resize(cameraImage, cameraImage, CameraImageSize * 2);
 		cv::imshow("SpaceInvaders", cameraImage);
 	}
-	
-	std::for_each(invaders.begin(), invaders.end(), deleteGraphic);
 	
 	return 0;
 }

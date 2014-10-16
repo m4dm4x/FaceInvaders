@@ -39,8 +39,8 @@ Invader::Factory::Factory(const GameImage& invaderImage, const cv::Size& camSize
 {
 }
 
-Invader* Invader::Factory::operator()() {
+Invader Invader::Factory::operator()() {
 	const unsigned count_ = count++;
 	const int xpos = (invaderImage.size().width + speed) * count_;
-	return new Invader(invaderImage, camSize, cv::Point(xpos,0), speed);
+	return Invader(invaderImage, camSize, cv::Point(xpos,0), speed);
 }

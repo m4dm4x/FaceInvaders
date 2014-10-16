@@ -3,12 +3,11 @@
 
 #include <opencv/cxcore.hpp>
 #include "graphic.h"
-
-class GameImage;
+#include "gameimage.h"
 
 class Invader : public Graphic {
 private:
-	const GameImage &invaderImage;	// player image
+	GameImage invaderImage;	// player image
 	cv::Size camSize;
 	cv::Point pos;     // Invader Position
 	cv::Point mov;     // Motion Vector
@@ -35,7 +34,7 @@ private:
 	unsigned count;
 public:
 	Factory(const GameImage &invaderImage, const cv::Size &camSize, int speed);
-	Invader* operator()();
+	Invader operator()();
 };
 
 #endif /* INVADER_H_ */

@@ -20,7 +20,6 @@ private:
 public:
 	PlayerPosition(Player &player, const std::string &haarcascadeFile, const cv::Size &size);
 	bool update(const cv::Mat &img);
-	//cv::Point point() const;
 };
 
 #endif // PLAYERPOSITION_H
